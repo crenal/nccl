@@ -93,7 +93,8 @@ enum ncclSymkAgGinProfileEventType {
   ncclSymkAgGinProfileEventBcastRemote = 7,
   ncclSymkAgGinProfileEventShadowSignal = 8,
   ncclSymkAgGinProfileEventFinalBarrier = 9,
-  ncclSymkAgGinProfileEventOverflow = 10
+  ncclSymkAgGinProfileEventOverflow = 10,
+  ncclSymkAgGinProfileEventBodyTime = 11
 };
 
 struct ncclSymkAgGinProfileRecord {

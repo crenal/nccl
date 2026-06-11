@@ -1484,6 +1484,7 @@ char const* symAgGinProfileEventName(int eventType) {
   case ncclSymkAgGinProfileEventShadowSignal: return "shadow_signal";
   case ncclSymkAgGinProfileEventFinalBarrier: return "final_barrier";
   case ncclSymkAgGinProfileEventOverflow: return "overflow";
+  case ncclSymkAgGinProfileEventBodyTime: return "body_time";
   default: return "unknown";
   }
 }

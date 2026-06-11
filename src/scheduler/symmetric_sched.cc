@@ -356,37 +356,7 @@ ncclResult_t ncclSymmetricTaskScheduler(struct ncclComm* comm,
 
 #if defined(NCCL_SYM_AG_GIN_PROFILE)
   if (kernelId == ncclSymkKernelId_AllGather_RailRing_LsaSTMC && !plan->persistent) {
-    constexpr size_t agGinChunkSize = ncclSymkAllGather_RailRing_ChunkSize;
-    constexpr int eltPerCell = NCCL_SYM_KERNEL_CELL_SIZE;
-    size_t maxChunksPerBlock = 0;
-    for (int block = 0; block < curChannel; block++) {
-      uint16_t blockWorkLo = block == 0 ? 0 : workRangePtr[block - 1].workHi;
-      uint32_t fracLo = block == 0 ? 0 : workRangePtr[block - 1].fracHi + 1;
-      if (fracLo == 0x10000) {
-        blockWorkLo++;
-        fracLo = 0;
-      }
-      uint16_t blockWorkHi = workRangePtr[block].workHi;
-      uint32_t fracHi = workRangePtr[block].fracHi + 1;
-      size_t blockChunks = 0;
-
-      for (int w = blockWorkLo; w <= blockWorkHi; w++) {
-        struct ncclSymkDevWork const& work = workBufPtr[w];
-        size_t indexLo = 0;
-        size_t indexHi = work.nElts;
-        if (w == blockWorkLo) indexLo = ((fracLo * divUp(work.nElts, eltPerCell)) >> 16) * eltPerCell;
-        if (w == blockWorkHi) {
-          indexHi = std::min(((fracHi * divUp(work.nElts, eltPerCell)) >> 16) * eltPerCell, work.nElts);
-        }
-        if (indexHi > indexLo) blockChunks += divUp(indexHi - indexLo, agGinChunkSize);
-      }
-      maxChunksPerBlock = std::max(maxChunksPerBlock, blockChunks);
-    }
-
-    int railNRanks = ncclTeamRail(comm).nRanks;
-    size_t ringEvents = maxChunksPerBlock * std::max(0, 2 * railNRanks - 3) + 3;
-    size_t lsaEvents = maxChunksPerBlock * std::max(0, 2 * railNRanks - 1) + 3;
-    int eventsPerPath = (int)(std::max(ringEvents, lsaEvents) + 1); // reserve one overflow slot
+    int eventsPerPath = 2; // one body_time slot plus one overflow slot
     size_t nProfileRecords = (size_t)curChannel * ncclSymkAgGinProfilePaths * eventsPerPath;
     NCCLCHECKGOTO(ncclCudaCalloc(&plan->symAgGinProfileDev, nProfileRecords, comm->memManager), ret, fail);
     NCCLCHECKGOTO(ncclCudaHostCalloc(&plan->symAgGinProfileHost, nProfileRecords), ret, fail);

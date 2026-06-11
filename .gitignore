@@ -30,3 +30,5 @@ docs/examples/**/rmsnorm_lsa
 docs/examples/**/rmsnorm_multimem
 docs/examples/**/rmsnorm_gin
 docs/examples/**/rmsnorm_hybrid
+
+/bodytime_nccl_test/bodytime_nccl_test
