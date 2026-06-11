@@ -192,6 +192,9 @@ endif()
 if(NCCL_GIT_COMMIT_HASH)
     target_compile_definitions(nccl PRIVATE NCCL_GIT_COMMIT_HASH="${NCCL_GIT_COMMIT_HASH}")
 endif()
+if(SYM_AG_GIN_PROFILE)
+    target_compile_definitions(nccl PRIVATE NCCL_SYM_AG_GIN_PROFILE=1)
+endif()
 
 # Set CUDA specific flags (separable compilation + device link for cross-TU device symbols).
 set_target_properties(nccl PROPERTIES
@@ -315,6 +318,9 @@ if(NCCL_GIT_BRANCH)
 endif()
 if(NCCL_GIT_COMMIT_HASH)
     target_compile_definitions(nccl_static PRIVATE NCCL_GIT_COMMIT_HASH="${NCCL_GIT_COMMIT_HASH}")
+endif()
+if(SYM_AG_GIN_PROFILE)
+    target_compile_definitions(nccl_static PRIVATE NCCL_SYM_AG_GIN_PROFILE=1)
 endif()
 
 # Link libraries

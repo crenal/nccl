@@ -20,9 +20,11 @@
 #include "scheduler.h"
 #include "compiler.h"
 #include "rma/rma.h"
+#include "param.h"
 
 #include <cstring> // std::memcpy
 #include <cinttypes> // PRIx64
+#include <cstdio>
 #include <cassert>
 #include <cfloat> // FLT_MAX
 
@@ -1459,6 +1461,151 @@ static void CUDART_CB hostStreamPlanCallback(void* plan_) {
   return;
 }
 
+#if defined(NCCL_SYM_AG_GIN_PROFILE)
+namespace {
+struct SymAgGinProfileCallback {
+  struct ncclCommEventCallback base;
+  struct ncclSymkAgGinProfileRecord* hostRecords;
+  struct ncclSymkAgGinProfileRecord* devRecords;
+  size_t nRecords;
+  int nBlocks;
+  int eventsPerPath;
+};
+
+char const* symAgGinProfileEventName(int eventType) {
+  switch (eventType) {
+  case ncclSymkAgGinProfileEventInitialBarrier: return "initial_barrier";
+  case ncclSymkAgGinProfileEventWaitSignal: return "wait_signal";
+  case ncclSymkAgGinProfileEventPutSelf: return "put_self";
+  case ncclSymkAgGinProfileEventPutRemote: return "put_remote";
+  case ncclSymkAgGinProfileEventFlush: return "flush";
+  case ncclSymkAgGinProfileEventBcastSelf: return "bcast_self";
+  case ncclSymkAgGinProfileEventBcastRemote: return "bcast_remote";
+  case ncclSymkAgGinProfileEventShadowSignal: return "shadow_signal";
+  case ncclSymkAgGinProfileEventFinalBarrier: return "final_barrier";
+  case ncclSymkAgGinProfileEventOverflow: return "overflow";
+  default: return "unknown";
+  }
+}
+
+char const* symAgGinProfilePathName(int path) {
+  switch (path) {
+  case ncclSymkAgGinProfilePathRing: return "ring";
+  case ncclSymkAgGinProfilePathLsa: return "lsa";
+  default: return "unknown";
+  }
+}
+
+ncclResult_t symAgGinProfileCallback_fn(struct ncclComm* comm, struct ncclCommEventCallback* cb) {
+  struct SymAgGinProfileCallback* me = (struct SymAgGinProfileCallback*)cb;
+  static uint64_t dumpCounter = 0;
+  uint64_t dumpId = __atomic_fetch_add(&dumpCounter, 1, __ATOMIC_RELAXED);
+  char const* prefix = ncclGetEnv("NCCL_SYM_AG_GIN_PROFILE_JSON");
+  if (prefix == nullptr || prefix[0] == '\0') prefix = "nccl_ag_gin_profile";
+  char fileName[1024];
+  snprintf(fileName, sizeof(fileName), "%s.rank%d.dump%llu.json", prefix, comm->rank, (unsigned long long)dumpId);
+
+  int emitted = 0;
+  FILE* file = fopen(fileName, "w");
+  if (file == nullptr) {
+    WARN("Could not open AG GIN profile JSON file %s", fileName);
+    goto cleanup;
+  }
+
+  fprintf(file,
+          "{\n"
+          "  \"schema\": \"nccl_sym_ag_gin_profile_events_v1\",\n"
+          "  \"rank\": %d,\n"
+          "  \"n_ranks\": %d,\n"
+          "  \"n_blocks\": %d,\n"
+          "  \"events_per_path\": %d,\n"
+          "  \"records\": %zu,\n"
+          "  \"events\": [\n",
+          comm->rank, comm->nRanks, me->nBlocks, me->eventsPerPath, me->nRecords);
+
+  for (size_t i = 0; i < me->nRecords; i++) {
+    struct ncclSymkAgGinProfileRecord const& r = me->hostRecords[i];
+    if (r.eventType == ncclSymkAgGinProfileEventNone) continue;
+    if (emitted++ != 0) fprintf(file, ",\n");
+    fprintf(file,
+            "    {"
+            "\"event_type\":\"%s\","
+            "\"path\":\"%s\","
+            "\"rank\":%d,"
+            "\"n_ranks\":%d,"
+            "\"rail_rank\":%d,"
+            "\"rail_n_ranks\":%d,"
+            "\"block\":%d,"
+            "\"n_blocks\":%d,"
+            "\"gin_context\":%d,"
+            "\"event_index\":%d,"
+            "\"op_index\":%d,"
+            "\"step\":%d,"
+            "\"data_peer\":%d,"
+            "\"world_rank\":%d,"
+            "\"start_cycles\":%llu,"
+            "\"elapsed_cycles\":%llu,"
+            "\"bytes\":%llu,"
+            "\"offset\":%llu,"
+            "\"signal_value\":%llu"
+            "}",
+            symAgGinProfileEventName(r.eventType), symAgGinProfilePathName(r.path), r.rank, r.nRanks, r.railRank,
+            r.railNRanks, r.block, me->nBlocks, r.ginContext, r.eventIndex, r.opIndex, r.step, r.dataPeer,
+            r.worldRank, (unsigned long long)r.startCycles, (unsigned long long)r.elapsedCycles,
+            (unsigned long long)r.bytes, (unsigned long long)r.offset, (unsigned long long)r.signalValue);
+  }
+  fprintf(file, "\n  ]\n}\n");
+  fclose(file);
+  INFO(NCCL_PROFILE, "NCCL_SYM_AG_GIN_PROFILE wrote %d events to %s", emitted, fileName);
+
+cleanup:
+  CUDACHECK(cudaEventDestroy(me->base.event));
+  if (me->devRecords != nullptr) NCCLCHECK(ncclCudaFree(me->devRecords, comm->memManager));
+  if (me->hostRecords != nullptr) NCCLCHECK(ncclCudaHostFree(me->hostRecords));
+  free(me);
+  return ncclSuccess;
+}
+
+ncclResult_t scheduleSymAgGinProfileDump(struct ncclComm* comm, struct ncclKernelPlan* plan, cudaStream_t stream) {
+  if (plan->symAgGinProfileDev == nullptr || plan->symAgGinProfileHost == nullptr || plan->symAgGinProfileRecords == 0) {
+    return ncclSuccess;
+  }
+
+  ncclResult_t ret = ncclSuccess;
+  struct SymAgGinProfileCallback* cb = nullptr;
+  NCCLCHECKGOTO(ncclCalloc(&cb, 1), ret, fail);
+  cb->base.fn = symAgGinProfileCallback_fn;
+  cb->hostRecords = plan->symAgGinProfileHost;
+  cb->devRecords = plan->symAgGinProfileDev;
+  cb->nRecords = plan->symAgGinProfileRecords;
+  cb->nBlocks = plan->symAgGinProfileBlocks;
+  cb->eventsPerPath = plan->symAgGinProfileEventsPerPath;
+
+  CUDACHECKGOTO(cudaEventCreateWithFlags(&cb->base.event, cudaEventDisableTiming), ret, fail);
+  CUDACHECKGOTO(cudaMemcpyAsync(cb->hostRecords, cb->devRecords,
+                                cb->nRecords * sizeof(struct ncclSymkAgGinProfileRecord),
+                                cudaMemcpyDeviceToHost, stream),
+                ret, fail);
+  CUDACHECKGOTO(cudaEventRecord(cb->base.event, stream), ret, fail);
+
+  plan->symAgGinProfileDev = nullptr;
+  plan->symAgGinProfileHost = nullptr;
+  plan->symAgGinProfileRecords = 0;
+  plan->symAgGinProfileBlocks = 0;
+  plan->symAgGinProfileEventsPerPath = 0;
+  ncclIntruQueueEnqueue(&comm->eventCallbackQueue, &cb->base);
+  return ncclSuccess;
+
+fail:
+  if (cb != nullptr) {
+    if (cb->base.event != nullptr) (void)cudaEventDestroy(cb->base.event);
+    free(cb);
+  }
+  return ret;
+}
+} // namespace
+#endif
+
 static ncclResult_t reclaimPlan(struct ncclComm* comm, struct ncclCommCallback* me) {
   struct ncclKernelPlan* plan = (struct ncclKernelPlan*)me; // cast from first member `reclaim`
   if (plan->persistent) {
@@ -1846,6 +1993,12 @@ ncclResult_t ncclLaunchKernel(struct ncclComm* comm, struct ncclKernelPlan* plan
   }
 
 do_return:
+#if defined(NCCL_SYM_AG_GIN_PROFILE)
+  if (ret == ncclSuccess) {
+    ncclResult_t profileRet = scheduleSymAgGinProfileDump(comm, plan, launchStream);
+    if (profileRet != ncclSuccess) ret = profileRet;
+  }
+#endif
   NCCLCHECK(ncclProfilerStopKernelLaunchEvent(plan));
   return ret;
 }

@@ -7,6 +7,10 @@
 include ../makefiles/common.mk
 include ../makefiles/version.mk
 
+ifeq ($(SYM_AG_GIN_PROFILE), 1)
+CXXFLAGS += -DNCCL_SYM_AG_GIN_PROFILE
+endif
+
 ##### src files
 # The only public headers are nccl.h and nccl_device.h. Any changes to this list should be discussed widely.
 INCEXPORTS  := nccl.h nccl_device.h \

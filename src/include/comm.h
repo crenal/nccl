@@ -340,6 +340,14 @@ struct ncclKernelPlan {
   struct ncclIntruQueue<struct ncclCommCallback, &ncclCommCallback::next> cleanupQueue;
   void* workBufPersistent;
 
+#if defined(NCCL_SYM_AG_GIN_PROFILE)
+  struct ncclSymkAgGinProfileRecord* symAgGinProfileDev;
+  struct ncclSymkAgGinProfileRecord* symAgGinProfileHost;
+  size_t symAgGinProfileRecords;
+  int symAgGinProfileBlocks;
+  int symAgGinProfileEventsPerPath;
+#endif
+
   struct ncclIntruQueue<struct ncclTaskP2p, &ncclTaskP2p::next> p2pTaskQueue;
   struct ncclIntruQueue<struct ncclTaskBcast, &ncclTaskBcast::next> bcastTaskQueue;
   struct ncclIntruQueue<struct ncclTaskRma, &ncclTaskRma::next> rmaTaskQueueProxy;

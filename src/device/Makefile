@@ -31,6 +31,9 @@ ifeq ($(NCCL_OS_LINUX), 1)
 NVCUFLAGS += -DNCCL_OS_LINUX
 NVCUFLAGS_SYM += -DNCCL_OS_LINUX -DDOCA_VERBS_USE_CUDA_WRAPPER -DDOCA_VERBS_USE_NET_WRAPPER
 endif
+ifeq ($(SYM_AG_GIN_PROFILE), 1)
+NVCUFLAGS_SYM += -DNCCL_SYM_AG_GIN_PROFILE
+endif
 #NVCUFLAGS_SYM += --ptx
 
 SAY = @bash -c 'path="$$2"; [[ "$$(realpath "$$2")" =~ ^$(subst .,\.,$(abspath $(NCCLDIR)))/(.*)$$ ]] && path="$${BASH_REMATCH[1]}"; printf "%-15s %s\n" "$$1" "$$path"' SAY

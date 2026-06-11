@@ -77,6 +77,47 @@ struct ncclSymkChannelWorkRange {
   uint16_t fracHi; // 16-bit fraction in (0.0, 1.0] indicating where my part ends
 };
 
+#if defined(NCCL_SYM_AG_GIN_PROFILE)
+constexpr int ncclSymkAgGinProfilePaths = 2;
+constexpr int ncclSymkAgGinProfilePathRing = 0;
+constexpr int ncclSymkAgGinProfilePathLsa = 1;
+
+enum ncclSymkAgGinProfileEventType {
+  ncclSymkAgGinProfileEventNone = 0,
+  ncclSymkAgGinProfileEventInitialBarrier = 1,
+  ncclSymkAgGinProfileEventWaitSignal = 2,
+  ncclSymkAgGinProfileEventPutSelf = 3,
+  ncclSymkAgGinProfileEventPutRemote = 4,
+  ncclSymkAgGinProfileEventFlush = 5,
+  ncclSymkAgGinProfileEventBcastSelf = 6,
+  ncclSymkAgGinProfileEventBcastRemote = 7,
+  ncclSymkAgGinProfileEventShadowSignal = 8,
+  ncclSymkAgGinProfileEventFinalBarrier = 9,
+  ncclSymkAgGinProfileEventOverflow = 10
+};
+
+struct ncclSymkAgGinProfileRecord {
+  uint64_t startCycles;
+  uint64_t elapsedCycles;
+  uint64_t bytes;
+  uint64_t offset;
+  uint64_t signalValue;
+  int rank;
+  int nRanks;
+  int railRank;
+  int railNRanks;
+  int block;
+  int ginContext;
+  int path;
+  int eventType;
+  int eventIndex;
+  int opIndex;
+  int step;
+  int dataPeer;
+  int worldRank;
+};
+#endif
+
 // 16 bytes aligned
 struct alignas(16) ncclSymkDevWork {
   uint64_t redOpArg; // must be collectively uniform
@@ -91,6 +132,12 @@ struct alignas(16) ncclSymkDevWorkArgs {
   struct ncclSymkDevComm kcomm;
   int nMaxChannels;
   int maxDynamicSmem;
+#if defined(NCCL_SYM_AG_GIN_PROFILE)
+  struct ncclSymkAgGinProfileRecord* agGinProfile;
+  int agGinProfileRecords;
+  int agGinProfileBlocks;
+  int agGinProfileEventsPerPath;
+#endif
   // starting of channelWorkRange will be aligned to 16 bytes
   // channelWorkRange[nChannels];
   // ncclSymDevWork[nWorks];

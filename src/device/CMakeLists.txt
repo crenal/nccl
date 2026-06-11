@@ -75,6 +75,9 @@ endif()
 if(NCCL_OS_LINUX)
     target_compile_definitions(nccl_device PRIVATE NCCL_OS_LINUX)
 endif()
+if(SYM_AG_GIN_PROFILE)
+    target_compile_definitions(nccl_device PRIVATE NCCL_SYM_AG_GIN_PROFILE=1)
+endif()
 
 # WIN32_LEAN_AND_MEAN prevents windows.h from pulling in winsock.h, so _WINSOCKAPI_
 # is only defined once (by winsock2.h) and C4005 redefinition warnings are avoided.
